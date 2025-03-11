@@ -2,6 +2,7 @@ package com.rit.gamifiedticketing.repository;
 
 import com.rit.gamifiedticketing.entity.User;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
@@ -20,4 +21,9 @@ public interface UserRepository extends JpaRepository<User, Long> {
 
     @Query("SELECT COUNT(u) + 1 FROM User u WHERE u.points > (SELECT points FROM User WHERE username = :username)")
     int getUserRank(@Param("username") String username);
+
+    @Modifying
+    @Query("UPDATE User u SET u.points = 0")
+    void resetAllUserPoints();
+
 }

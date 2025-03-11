@@ -25,7 +25,7 @@ public class RateLimiterFilter extends OncePerRequestFilter {
     // Define rate limit: 10 requests per minute per IP
     private Bucket createNewBucket() {
         return Bucket.builder()
-        .addLimit(Bandwidth.classic(10, Refill.greedy(10, Duration.ofSeconds(30))))
+        .addLimit(Bandwidth.classic(100, Refill.greedy(100, Duration.ofSeconds(60))))
         .build();
     }
 

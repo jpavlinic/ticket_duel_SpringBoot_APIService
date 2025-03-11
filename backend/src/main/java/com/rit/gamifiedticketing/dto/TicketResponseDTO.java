@@ -14,4 +14,5 @@ public class TicketResponseDTO {
     private int points;
     private String assignedTo;
     private String createdBy;
+    private String status;
 }

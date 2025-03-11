@@ -114,7 +114,8 @@ public class TicketService {
                         ticket.getDescription(),
                         ticket.getPoints(),
                         ticket.getAssignedTo() != null ? ticket.getAssignedTo().getUsername() : null,
-                        ticket.getCreatedBy().getUsername()))
+                        ticket.getCreatedBy().getUsername(),
+                        ticket.getStatus().name()))
                 .collect(Collectors.toList());
     }
 
@@ -122,16 +123,15 @@ public class TicketService {
     public FullTicketResponseDTO getTicketById(Long ticketId) {
         Ticket ticket = ticketRepository.findById(ticketId)
                 .orElseThrow(() -> new RuntimeException("Ticket not found"));
-    
+
         // Fetch comments from the comments table
         List<CommentDTO> comments = commentRepository.findByTicketId(ticketId).stream()
                 .map(comment -> new CommentDTO(
                         comment.getTime().toString(),
                         comment.getUser().getUsername(),
-                        comment.getMessage()
-                ))
+                        comment.getMessage()))
                 .collect(Collectors.toList());
-    
+
         return new FullTicketResponseDTO(
                 ticket.getId(),
                 ticket.getTitle(),
@@ -146,7 +146,6 @@ public class TicketService {
                 comments // Now returns a proper list of CommentDTO instead of a JSON string
         );
     }
-    
 
     @Transactional(readOnly = true)
     @PreAuthorize("hasAnyAuthority('ROLE_SOLVER', 'ROLE_ADMIN')")
@@ -160,7 +159,8 @@ public class TicketService {
                         ticket.getDescription(),
                         ticket.getPoints(),
                         null, // No assigned solver (always null)
-                        ticket.getCreatedBy().getUsername()))
+                        ticket.getCreatedBy().getUsername(),
+                        ticket.getStatus().name()))
                 .collect(Collectors.toList());
     }
 
@@ -216,30 +216,145 @@ public class TicketService {
         String username = getAuthenticatedUsername(); // ✅ Automatically fetch logged-in user
         User user = userRepository.findByUsername(username)
                 .orElseThrow(() -> new RuntimeException("User not found"));
-    
+
         Ticket ticket = ticketRepository.findById(ticketId)
                 .orElseThrow(() -> new RuntimeException("Ticket not found"));
-    
+
         // Check if user is authorized to comment
-        if (!isAdmin(username) && 
-            !user.equals(ticket.getAssignedTo()) && 
-            !user.equals(ticket.getCreatedBy())) {
+        if (!isAdmin(username) &&
+                !user.equals(ticket.getAssignedTo()) &&
+                !user.equals(ticket.getCreatedBy())) {
             throw new RuntimeException("You are not authorized to comment on this ticket.");
         }
-    
+
         // Trim comment text
         commentText = commentText.trim();
-    
+
         // Create and save comment with auto-generated time and username
         Comment comment = new Comment();
         comment.setTicket(ticket);
         comment.setUser(user);
         comment.setMessage(commentText);
         comment.setTime(LocalDateTime.now()); // ✅ Auto-set timestamp
-    
+
         commentRepository.save(comment);
-        
+
         return "Comment added successfully.";
+    }
+
+    @Transactional
+    @PreAuthorize("hasAnyAuthority('ROLE_SOLVER', 'ROLE_QUESTIONNAIRE', 'ROLE_ADMIN')")
+    public String updateTicketStatus(Long ticketId, String newStatus) {
+        Ticket ticket = ticketRepository.findById(ticketId)
+                .orElseThrow(() -> new RuntimeException("Ticket not found"));
+    
+        String username = getAuthenticatedUsername();
+        User user = userRepository.findByUsername(username)
+                .orElseThrow(() -> new RuntimeException("User not found"));
+    
+        Ticket.TicketStatus currentStatus = ticket.getStatus();
+        Ticket.TicketStatus updatedStatus;
+    
+        try {
+            updatedStatus = Ticket.TicketStatus.valueOf(newStatus.toUpperCase());
+        } catch (IllegalArgumentException e) {
+            throw new RuntimeException("Invalid status. Allowed values: OPEN, IN_PROGRESS, IN_REVIEW, COMPLETED, REJECTED");
+        }
+    
+        // ✅ SOLVER: Move from OPEN → IN_PROGRESS
+        if (updatedStatus == Ticket.TicketStatus.IN_PROGRESS) {
+            if (!user.equals(ticket.getAssignedTo())) {
+                throw new RuntimeException("Only the assigned solver can move the ticket to IN_PROGRESS.");
+            }
+            if (currentStatus != Ticket.TicketStatus.OPEN && currentStatus != Ticket.TicketStatus.IN_REVIEW) {
+                throw new RuntimeException("Only OPEN or IN_REVIEW tickets can be moved to IN_PROGRESS.");
+            }
+        }
+    
+        // ✅ SOLVER: Move from IN_PROGRESS → IN_REVIEW
+        if (updatedStatus == Ticket.TicketStatus.IN_REVIEW) {
+            if (!user.equals(ticket.getAssignedTo())) {
+                throw new RuntimeException("Only the assigned solver can move the ticket to IN_REVIEW.");
+            }
+            if (currentStatus != Ticket.TicketStatus.IN_PROGRESS) {
+                throw new RuntimeException("Only IN_PROGRESS tickets can be moved to IN_REVIEW.");
+            }
+        }
+    
+        // ✅ SOLVER: Move from IN_PROGRESS → OPEN
+        if (updatedStatus == Ticket.TicketStatus.OPEN) {
+            if (!user.equals(ticket.getAssignedTo())) {
+                throw new RuntimeException("Only the assigned solver can move the ticket back to OPEN.");
+            }
+            if (currentStatus != Ticket.TicketStatus.IN_PROGRESS) {
+                throw new RuntimeException("Only IN_PROGRESS tickets can be moved back to OPEN.");
+            }
+            // Remove assignment since it's being moved back to OPEN
+            ticket.setAssignedTo(null);
+        }
+    
+        // ✅ QUESTIONNAIRE: Move from IN_REVIEW → IN_PROGRESS, COMPLETED, or REJECTED
+        if (updatedStatus == Ticket.TicketStatus.COMPLETED || updatedStatus == Ticket.TicketStatus.REJECTED) {
+            if (!user.equals(ticket.getCreatedBy())) {
+                throw new RuntimeException("Only the ticket creator can mark it as COMPLETED or REJECTED.");
+            }
+            if (currentStatus != Ticket.TicketStatus.IN_REVIEW) {
+                throw new RuntimeException("Only IN_REVIEW tickets can be moved to COMPLETED or REJECTED.");
+            }
+    
+            // ✅ Assign points if ticket is COMPLETED
+            if (updatedStatus == Ticket.TicketStatus.COMPLETED && ticket.getAssignedTo() != null) {
+                User solver = ticket.getAssignedTo();
+                solver.setPoints(solver.getPoints() + ticket.getPoints());
+                userRepository.save(solver);
+            }
+        }
+    
+        // ✅ QUESTIONNAIRE: Move from IN_REVIEW → IN_PROGRESS
+        if (updatedStatus == Ticket.TicketStatus.IN_PROGRESS && currentStatus == Ticket.TicketStatus.IN_REVIEW) {
+            if (!user.equals(ticket.getCreatedBy())) {
+                throw new RuntimeException("Only the ticket creator can move it back to IN_PROGRESS.");
+            }
+        }
+    
+        // ✅ Update ticket status
+        ticket.setStatus(updatedStatus);
+        ticketRepository.save(ticket);
+    
+        return "Ticket status updated successfully to " + updatedStatus;
+    }    
+
+    @Transactional
+    @PreAuthorize("hasAnyAuthority('ROLE_QUESTIONNAIRE', 'ROLE_ADMIN')")
+    public String resetRejectedTicket(Long ticketId) {
+        Ticket ticket = ticketRepository.findById(ticketId)
+                .orElseThrow(() -> new RuntimeException("Ticket not found"));
+
+        // ✅ Ensure the ticket is in REJECTED status
+        if (ticket.getStatus() != Ticket.TicketStatus.REJECTED) {
+            throw new RuntimeException("Only REJECTED tickets can be reset.");
+        }
+
+        String username = getAuthenticatedUsername();
+        User user = userRepository.findByUsername(username)
+                .orElseThrow(() -> new RuntimeException("User not found"));
+
+        // ✅ Ensure only creator (Questionnaire) or Admin can reset
+        if (!user.equals(ticket.getCreatedBy()) && !isAdmin(username)) {
+            throw new RuntimeException("You are not authorized to reset this ticket.");
+        }
+
+        // ✅ Delete all comments related to the ticket
+        commentRepository.deleteByTicketId(ticketId);
+
+        // ✅ Reset the ticket details
+        ticket.setFinalSolution(null);
+        ticket.setAssignedTo(null);
+        ticket.setStatus(Ticket.TicketStatus.OPEN);
+
+        ticketRepository.save(ticket);
+
+        return "Ticket reset successfully to OPEN.";
     }
 
     private String getAuthenticatedUsername() {

@@ -64,7 +64,7 @@ public class Ticket {
     }
 
     public enum TicketStatus {
-        OPEN, IN_PROGRESS, COMPLETED, REJECTED
-    }
+        OPEN, IN_PROGRESS, IN_REVIEW, COMPLETED, REJECTED
+    }    
 
 }

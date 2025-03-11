@@ -4,6 +4,10 @@ import com.rit.gamifiedticketing.dto.FullTicketResponseDTO;
 import com.rit.gamifiedticketing.dto.TicketDTO;
 import com.rit.gamifiedticketing.dto.TicketResponseDTO;
 import com.rit.gamifiedticketing.service.TicketService;
+import com.rit.gamifiedticketing.service.WebSocketService;
+
+import lombok.RequiredArgsConstructor;
+
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
@@ -12,19 +16,18 @@ import java.util.List;
 import javax.validation.Valid;
 
 @RestController
+@RequiredArgsConstructor
 @RequestMapping("/api/tickets")
 public class TicketController {
 
     private final TicketService ticketService;
-
-    public TicketController(TicketService ticketService) {
-        this.ticketService = ticketService;
-    }
+    private final WebSocketService webSocketService;
 
     @PostMapping("/create")
     public ResponseEntity<?> createTicket(@Valid @RequestBody TicketDTO request) {
         try {
             ticketService.createTicket(request);
+            webSocketService.sendUpdate("Refresh");
             return ResponseEntity.ok("Ticket created successfully.");
         } catch (RuntimeException ex) {
             return ResponseEntity.badRequest().body(ex.getMessage());
@@ -35,6 +38,7 @@ public class TicketController {
     public ResponseEntity<?> updateTicket(@PathVariable Long ticketId, @Valid @RequestBody TicketDTO request) {
         try {
             ticketService.updateTicket(ticketId, request);
+            webSocketService.sendUpdate("Refresh");
             return ResponseEntity.ok("Ticket updated successfully.");
         } catch (RuntimeException ex) {
             return ResponseEntity.badRequest().body(ex.getMessage());
@@ -45,6 +49,7 @@ public class TicketController {
     public ResponseEntity<?> deleteTicket(@PathVariable Long ticketId) {
         try {
             ticketService.deleteTicket(ticketId);
+            webSocketService.sendUpdate("Refresh");
             return ResponseEntity.ok("Ticket deleted successfully.");
         } catch (RuntimeException ex) {
             return ResponseEntity.badRequest().body(ex.getMessage());
@@ -85,6 +90,7 @@ public class TicketController {
     public ResponseEntity<?> assignTicketToSelf(@PathVariable Long ticketId) {
         try {
             String response = ticketService.assignTicketToSelf(ticketId);
+            webSocketService.sendUpdate("Refresh");
             return ResponseEntity.ok(response);
         } catch (RuntimeException ex) {
             return ResponseEntity.badRequest().body(ex.getMessage());
@@ -106,5 +112,26 @@ public class TicketController {
         String response = ticketService.addComment(ticketId, comment);
         return ResponseEntity.ok(response);
     }
-    
+
+    @PutMapping("/{ticketId}/status")
+    public ResponseEntity<?> updateTicketStatus(@PathVariable Long ticketId, @RequestParam String newStatus) {
+        try {
+            String response = ticketService.updateTicketStatus(ticketId, newStatus);
+            return ResponseEntity.ok(response);
+        } catch (RuntimeException ex) {
+            return ResponseEntity.badRequest().body(ex.getMessage());
+        }
+    }
+
+    @PutMapping("/{ticketId}/reset")
+    public ResponseEntity<?> resetRejectedTicket(@PathVariable Long ticketId) {
+        try {
+            String response = ticketService.resetRejectedTicket(ticketId);
+            webSocketService.sendUpdate("Refresh");
+            return ResponseEntity.ok(response);
+        } catch (RuntimeException ex) {
+            return ResponseEntity.badRequest().body(ex.getMessage());
+        }
+    }
+
 }

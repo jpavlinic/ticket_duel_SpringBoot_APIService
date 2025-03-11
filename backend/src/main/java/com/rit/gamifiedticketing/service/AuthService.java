@@ -41,8 +41,7 @@ public class AuthService {
             @NotBlank @Size(min = 4, max = 50) String username,
             @Email @NotBlank @Size(max = 100) String email,
             @NotBlank @Size(min = 8, message = "Password must be at least 8 characters long") String password,
-            @NotBlank @Pattern(regexp = "^(ADMIN|QUESTIONNAIRE|SOLVER)$", message = "Role must be one of: ADMIN, QUESTIONNAIRE, SOLVER") String role) { // Added
-                                                                                                                                                        // role
+            @NotBlank @Pattern(regexp = "^(QUESTIONNAIRE|SOLVER)$", message = "Role must be one of: QUESTIONNAIRE, SOLVER") String role) { 
 
         // Trim whitespace and remove any malicious scripts (XSS protection)
         username = sanitizeInput(username);
@@ -56,6 +55,11 @@ public class AuthService {
             throw new IllegalArgumentException("Username or Email already in use.");
         }
 
+        // Prevent ADMIN role from being assigned
+        if ("ADMIN".equalsIgnoreCase(role)) {
+            throw new IllegalArgumentException("ADMIN role cannot be assigned through registration.");
+        }
+    
         // Create new user and hash password
         User user = new User();
         user.setUsername(username);
